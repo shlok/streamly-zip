@@ -20,28 +20,27 @@ tests =
 
 testDataZip :: TestTree
 testDataZip = testCase "testDataZip" $ do
-  zip' <- openZip "test/data/data.zip" []
+  withZip "test/data/data.zip" [] $ \zip' -> do
+    numEntries <- getNumEntries zip'
+    assertEqual "" numEntries 4
 
-  numEntries <- getNumEntries zip'
-  assertEqual "" numEntries 4
+    paths <- forM [0 .. numEntries -1] $ \idx -> getPathByIndex zip' idx []
+    assertEqual "" paths ["1byte", "60kilobytes", "larger/", "larger/1megabyte"]
+    let indexedPaths = zip [0 ..] paths
 
-  paths <- forM [0 .. numEntries -1] $ \idx -> getPathByIndex zip' idx []
-  assertEqual "" paths ["1byte", "60kilobytes", "larger/", "larger/1megabyte"]
-  let indexedPaths = zip [0 ..] paths
+    let fileToBs = \file -> S.unfold (unfoldFile file) undefined & S.fold (F.foldl' B.append B.empty)
+    fileBytestrings2 <- forM indexedPaths $ \(idx, path) -> do
+      (,) <$> withFileByIndex zip' [] idx fileToBs <*> withFileByPath zip' [] (unpack path) fileToBs
+    let fileBytestrings = map fst fileBytestrings2
+    assertEqual "" fileBytestrings (map snd fileBytestrings2)
 
-  let fileToBs = \file -> S.unfold (unfoldFile file) undefined & S.fold (F.foldl' B.append B.empty)
-  fileBytestrings2 <- forM indexedPaths $ \(idx, path) -> do
-    (,) <$> withFileByIndex zip' [] idx fileToBs <*> withFileByPath zip' [] (unpack path) fileToBs
-  let fileBytestrings = map fst fileBytestrings2
-  assertEqual "" fileBytestrings (map snd fileBytestrings2)
+    let hashes = map (Base16.encode . SHA256.hash) fileBytestrings
+        expectedHashes =
+          [ "2d3193691934124461809fb9bc7e671215099fc7d961bfbe31943d40d477c890",
+            "8ef26f35dd26d5852a145e8ed64dad4db69820556fb267c23d76a513deaaaa80",
+            -- SHA256 of empty string.
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "b9a25f19d36f7e39ceff25e1463eeaa9800a8fae12551d46f826ae87ccba4a40"
+          ]
 
-  let hashes = map (Base16.encode . SHA256.hash) fileBytestrings
-      expectedHashes =
-        [ "2d3193691934124461809fb9bc7e671215099fc7d961bfbe31943d40d477c890",
-          "8ef26f35dd26d5852a145e8ed64dad4db69820556fb267c23d76a513deaaaa80",
-          -- SHA256 of empty string.
-          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "b9a25f19d36f7e39ceff25e1463eeaa9800a8fae12551d46f826ae87ccba4a40"
-        ]
-
-  assertEqual "" hashes expectedHashes
+    assertEqual "" hashes expectedHashes

@@ -9,14 +9,13 @@ import Data.List (foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
-import Foreign (Ptr)
+import Foreign (Ptr, nullPtr)
 import Foreign.C.String (withCString)
 import Foreign.C.Types (CInt)
-import Foreign.ForeignPtr (ForeignPtr, withForeignPtr)
 import Streamly.External.Zip.Internal.Foreign
 
 -- | A zip archive.
-newtype Zip = Zip (ForeignPtr Zip_t) -- Constructor not publicly exported.
+newtype Zip = Zip (Ptr Zip_t) -- Constructor not publicly exported.
 
 -- (*) Certain libzip functionality (e.g., flags) has been commented out because it is currently not
 -- applicable for this library, e.g., because this library is currently read-only.
@@ -100,22 +99,29 @@ getFileFlags =
     -- (GF_FL_UNCHANGED, zip_fl_unchanged)
     ]
 
--- The somewhat unfortunate “withFile” API is due to the fact that c_zip_fclose returns a CInt
--- that has to be handled. (If it returned void, we could have put Zip_file_t into a ForeignPtr.)
+-- The somewhat inconvenient “withZip/withFile” API is due to two things:
+--   * In libzip, a File cannot be read from after the Zip is closed. However, the need for
+--     “withZip” could maybe be avoided somehow in the future; see 'touchForeignPtr' documentation.
+--   * Even without a “withZip”, we would still need a “withFile” because c_zip_fclose returns a
+--     CInt that has to be handled. (Only if it returned void could it make sense to put Zip_file_t
+--     into a ForeignPtr.)
 withFileByPathOrIndex :: Zip -> [GetFileFlag] -> Either String Int -> (File -> IO a) -> IO a
-withFileByPathOrIndex (Zip zipfp) flags pathOrIdx io =
+withFileByPathOrIndex (Zip zipp) flags pathOrIdx io =
   let flags' = combineFlags getFileFlags flags
-   in withForeignPtr zipfp $ \zipp ->
-        bracket
-          ( case pathOrIdx of
+   in bracket
+        ( do
+            fp <- case pathOrIdx of
               Left path -> withCString path $ \pathc -> c_zip_fopen zipp pathc flags'
               Right idx -> c_zip_fopen_index zipp (fromIntegral idx) flags'
-          )
-          ( \filep -> do
-              ret <- c_zip_fclose filep
-              when (ret /= 0) (error "todo: throw exception")
-          )
-          (io . File)
+            if fp == nullPtr
+              then error $ "todo: throw exception; file could not be opened: " ++ show pathOrIdx
+              else return fp
+        )
+        ( \filep -> do
+            ret <- c_zip_fclose filep
+            when (ret /= 0) (error "todo: throw exception")
+        )
+        (io . File)
 
 {-# INLINE chunkSize #-}
 chunkSize :: Zip_uint64_t
