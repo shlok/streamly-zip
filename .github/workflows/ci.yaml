@@ -12,15 +12,15 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: '30 2 * * 6' # At 02:30 on Saturday.
+    - cron: '30 2 1 * *' # At 02:30 on day-of-month 1.
 jobs:
   cabal:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ["ubuntu-18.04", "ubuntu-20.04", "macos-10.15"]
-        cabal: ["3.4"]
-        ghc: ["8.8.4", "8.10.4"]
+        os: ["ubuntu-20.04", "ubuntu-22.04", "macos-11", "macos-12"]
+        cabal: ["3.6.2"]
+        ghc: ["8.10.7", "9.2.5"]
       fail-fast: false
     name: cabal ${{ matrix.cabal }} - ${{ matrix.os }}, ${{ matrix.ghc }}
     env:
