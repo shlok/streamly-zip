@@ -1,27 +1,22 @@
-cabal-version: 1.12
-
--- This file has been generated from package.yaml by hpack version 0.34.6.
---
--- see: https://github.com/sol/hpack
-
-name:           streamly-zip
-version:        0.0.1
-synopsis:       Stream data from zip and zip64 archives using the streamly library.
-description:    Please see the README on GitHub at <https://github.com/shlok/streamly-zip#readme>
-category:       Archive, Codec, Streaming, Streamly
-homepage:       https://github.com/shlok/streamly-zip#readme
-bug-reports:    https://github.com/shlok/streamly-zip/issues
-author:         Shlok Datye
-maintainer:     sd-haskell@quant.is
-copyright:      2022 Shlok Datye
-license:        BSD3
-license-file:   LICENSE
-build-type:     Simple
-extra-source-files:
-    README.md
-    ChangeLog.md
+cabal-version:    3.0
+name:             streamly-zip
+version:          0.0.1
+synopsis:         Stream data from zip and zip64 archives using the streamly library.
+description:      Please see the README on GitHub at <https://github.com/shlok/streamly-zip#readme>
+category:         Archive, Codec, Streaming, Streamly
+homepage:         https://github.com/shlok/streamly-zip
+bug-reports:      https://github.com/shlok/streamly-zip/issues
+author:           Shlok Datye
+maintainer:       sd-haskell@quant.is
+copyright:        2023 Shlok Datye
+license:          BSD-3-Clause
+license-file:     LICENSE
+build-type:       Simple
+extra-doc-files:
+  ChangeLog.md
+  README.md
 data-files:
-    test/data/data.zip
+  test/data/data.zip
 
 source-repository head
   type: git
@@ -40,7 +35,7 @@ library
   extra-libraries:
       zip
   build-depends:
-      base >=4.7 && <5
+      base >=4.14 && <5
     , bytestring ==0.10.*
     , containers ==0.6.*
     , streamly ==0.8.*

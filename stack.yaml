@@ -1,8 +1,0 @@
-resolver:
-  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/6.yaml
-packages:
-- .
-extra-deps:
-- streamly-0.8.3@sha256:76b846fa76a8a59fa1743fbcdf419edc2c828af49196eb3b7a0b2c5d36a3c9c2,23501
-- lockfree-queue-0.2.4@sha256:156e7ccc193fc5d8b43f065e9cd31c3171c79ec25863283d546900d92930846d,2963
-- unicode-data-0.3.1@sha256:ae3a3aca89a32b912ddde7a644c0c04eaf23ee42014c74fe3d6b9aaf36ce7ec9,5481

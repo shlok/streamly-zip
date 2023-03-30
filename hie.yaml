@@ -1,6 +1,0 @@
-cradle:
-  stack:
-    - path: ./test
-      component: "streamly-zip:test:streamly-zip-test"
-    - path: ./src
-      component: "streamly-zip:lib"
