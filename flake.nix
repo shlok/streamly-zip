@@ -21,10 +21,7 @@
             in {
               myHaskellPackages = haskellPkgs.override {
                 overrides = hfinal: hprev: { 
-                  ${packageName} =
-                    final.haskell.lib.addBuildDepends
-                      (hfinal.callCabal2nix "${packageName}" ./. {})
-                      [final.libzip];
+                  ${packageName} = hfinal.callCabal2nix "${packageName}" ./. {};
                 };
               };
 
@@ -33,7 +30,7 @@
               myDevShell = final.myHaskellPackages.shellFor {
                 packages = p: [ p.${packageName} ];
 
-                buildInputs = [final.libzip];
+                buildInputs = [];
 
                 nativeBuildInputs = [
                   haskellPkgs.cabal-install
