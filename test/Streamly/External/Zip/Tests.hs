@@ -9,8 +9,8 @@ import qualified Data.ByteString.Base16 as Base16
 import Data.ByteString.Char8 (unpack)
 import Data.Function ((&))
 import qualified Streamly.Data.Fold as F
+import qualified Streamly.Data.Stream.Prelude as S
 import Streamly.External.Zip
-import qualified Streamly.Prelude as S
 import Test.Tasty (TestTree)
 import Test.Tasty.HUnit (assertEqual, testCase)
 
@@ -24,11 +24,11 @@ testDataZip = testCase "testDataZip" $ do
     numEntries <- getNumEntries zip'
     assertEqual "" numEntries 4
 
-    paths <- forM [0 .. numEntries -1] $ \idx -> getPathByIndex zip' idx []
+    paths <- forM [0 .. numEntries - 1] $ \idx -> getPathByIndex zip' idx []
     assertEqual "" paths ["1byte", "60kilobytes", "larger/", "larger/1megabyte"]
     let indexedPaths = zip [0 ..] paths
 
-    let fileToBs = \file -> S.unfold (unfoldFile file) undefined & S.fold (F.foldl' B.append B.empty)
+    let fileToBs file = S.unfold (unfoldFile file) undefined & S.fold (F.foldl' B.append B.empty)
     fileBytestrings2 <- forM indexedPaths $ \(idx, path) -> do
       (,) <$> withFileByIndex zip' [] idx fileToBs <*> withFileByPath zip' [] (unpack path) fileToBs
     let fileBytestrings = map fst fileBytestrings2

@@ -35,11 +35,11 @@ import Foreign (nullPtr)
 import Foreign.C.String (withCString)
 import Foreign.C.Types (CChar)
 import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
+import qualified Streamly.Data.Unfold as U
 import Foreign.Marshal.Alloc (alloca)
 import Streamly.External.Zip.Internal
 import Streamly.External.Zip.Internal.Foreign
 import Streamly.Internal.Data.Stream.StreamD.Type (Step (..))
-import Streamly.Internal.Data.Unfold (supply)
 import Streamly.Internal.Data.Unfold.Type (Unfold (..))
 
 -- | Operate on the zip archive at the given file path.
@@ -93,7 +93,7 @@ withFileByIndex zip' flags idx = withFileByPathOrIndex zip' flags (Right idx)
 {-# INLINE unfoldFile #-}
 unfoldFile :: (MonadIO m) => File -> Unfold m Void ByteString
 unfoldFile (File filep) =
-  supply () $
+  (U.lmap . const) () $
     Unfold
       ( \buffp -> liftIO . withForeignPtr buffp $ \bufp -> do
           bytesRead <- c_zip_fread filep bufp chunkSize

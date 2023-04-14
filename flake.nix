@@ -22,6 +22,7 @@
               myHaskellPackages = haskellPkgs.override {
                 overrides = hfinal: hprev: { 
                   ${packageName} = hfinal.callCabal2nix "${packageName}" ./. {
+                    streamly = hfinal.streamly_0_9_0;
                     zip = pkgs.libzip;
                   };
                 };
