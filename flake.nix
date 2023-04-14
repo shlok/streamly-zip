@@ -2,14 +2,14 @@
   description = "streamly-zip";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-22.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
   outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        ghcVersion = "8107";
+        ghcVersion = "927";
         packageName = "streamly-zip";
 
         config = {};
@@ -21,7 +21,9 @@
             in {
               myHaskellPackages = haskellPkgs.override {
                 overrides = hfinal: hprev: { 
-                  ${packageName} = hfinal.callCabal2nix "${packageName}" ./. {};
+                  ${packageName} = hfinal.callCabal2nix "${packageName}" ./. {
+                    zip = pkgs.libzip;
+                  };
                 };
               };
 
@@ -29,9 +31,6 @@
 
               myDevShell = final.myHaskellPackages.shellFor {
                 packages = p: [ p.${packageName} ];
-
-                buildInputs = [];
-
                 nativeBuildInputs = [
                   haskellPkgs.cabal-install
                   haskellPkgs.haskell-language-server
@@ -42,7 +41,10 @@
 
         pkgs = import nixpkgs { inherit config overlays system; };
       in {
-        packages.default = pkgs.${packageName};
+        packages = {
+          default = pkgs.${packageName};
+          ${packageName} = pkgs.${packageName};
+        };
         devShells.default = pkgs.myDevShell;
       });
 }
