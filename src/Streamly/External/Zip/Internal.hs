@@ -1,21 +1,29 @@
--- We want to make things that are not publicly exported accessible to the outside world for
--- advanced users; hence this module.
+-- We want to make things that are not publicly exposed available nonetheless to advanced users;
+-- hence this module.
 module Streamly.External.Zip.Internal where
 
-import Control.Exception (bracket)
+import Control.Exception
 import Control.Monad (when)
-import Data.Bits (Bits, (.|.))
-import Data.List (foldl')
+import Control.Monad.IO.Class
+import Data.ByteString (ByteString, packCStringLen)
+import Data.List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe)
-import Foreign (Ptr, nullPtr)
-import Foreign.C.String (withCString)
+import Data.Maybe
+import Data.Void
+import Foreign
+import Foreign.C.String
 import Foreign.C.Types (CInt)
+import qualified Streamly.Data.Unfold as U
 import Streamly.External.Zip.Internal.Foreign
+import Streamly.Internal.Data.IOFinalizer
+import Streamly.Internal.Data.Stream.StreamD.Type (Step (..))
+import Streamly.Internal.Data.Unfold.Type
 
 -- | A zip archive.
-newtype Zip = Zip (Ptr Zip_t) -- Constructor not publicly exported.
+newtype Zip
+  = -- A ForeignPtr works because zip_discard() returns void.
+    Zip (ForeignPtr Zip_t)
 
 -- (*) Certain libzip functionality (e.g., flags) has been commented out because it is currently not
 -- applicable for this library, e.g., because this library is currently read-only.
@@ -83,7 +91,10 @@ pathFlags =
     ]
 
 -- | A file inside of a 'Zip' archive.
-newtype File = File (Ptr Zip_file_t)
+data File
+  = File
+      !(Ptr Zip_file_t) -- ForeignPtr does not work because zip_fclose() does not return void.
+      !IOFinalizer
 
 data GetFileFlag
   = -- | Read the compressed data. Otherwise the data is uncompressed when reading.
@@ -99,29 +110,53 @@ getFileFlags =
     -- (GF_FL_UNCHANGED, zip_fl_unchanged)
     ]
 
--- The somewhat inconvenient “withZip/withFile” API is due to two things:
---   * In libzip, a File cannot be read from after the Zip is closed. However, the need for
---     “withZip” could maybe be avoided somehow in the future; see 'touchForeignPtr' documentation.
---   * Even without a “withZip”, we would still need a “withFile” because c_zip_fclose returns a
---     CInt that has to be handled. (Only if it returned void could it make sense to put Zip_file_t
---     into a ForeignPtr.)
-withFileByPathOrIndex :: Zip -> [GetFileFlag] -> Either String Int -> (File -> IO a) -> IO a
-withFileByPathOrIndex (Zip zipp) flags pathOrIdx io =
+-- We don't publicly expose getting a 'File' (and then unfolding from it) because we don't want
+-- users to unfold from the same 'File' more than once.
+getFileByPathOrIndex :: Zip -> [GetFileFlag] -> Either String Int -> IO File
+getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = do
   let flags' = combineFlags getFileFlags flags
-   in bracket
-        ( do
-            fp <- case pathOrIdx of
-              Left path -> withCString path $ \pathc -> c_zip_fopen zipp pathc flags'
-              Right idx -> c_zip_fopen_index zipp (fromIntegral idx) flags'
-            if fp == nullPtr
-              then error $ "todo: throw exception; file could not be opened: " ++ show pathOrIdx
-              else return fp
-        )
-        ( \filep -> do
-            ret <- c_zip_fclose filep
-            when (ret /= 0) (error "todo: throw exception")
-        )
-        (io . File)
+  filep <- case pathOrIdx of
+    Left path ->
+      withCString path $ \pathc -> withForeignPtr zipfp $ \zipp ->
+        c_zip_fopen zipp pathc flags'
+    Right idx ->
+      withForeignPtr zipfp $ \zipp ->
+        c_zip_fopen_index zipp (fromIntegral idx) flags'
+  if filep == nullPtr
+    then error $ "todo: throw exception; file could not be opened: " ++ show pathOrIdx
+    else do
+      ref <- newIOFinalizer $ do
+        ret <- c_zip_fclose filep
+        when (ret /= 0) $ error "todo: throw exception"
+      return $ File filep ref
+
+{-# INLINE unfoldFile #-}
+unfoldFile :: (MonadIO m) => Zip -> [GetFileFlag] -> Either String Int -> Unfold m Void ByteString
+unfoldFile z@(Zip zipfp) flags pathOrIndex =
+  (U.lmap . const) () $
+    Unfold
+      ( \(file@(File filep _), bufp, ref) -> liftIO $ do
+          bytesRead <- c_zip_fread filep bufp chunkSize
+          if bytesRead < 0
+            then error "todo: throw exception"
+            else
+              if bytesRead == 0
+                then do
+                  runIOFinalizer ref
+                  touchForeignPtr zipfp -- Keep zip alive for (at least) the duration of the Unfold.
+                  return Stop
+                else do
+                  bs <- packCStringLen (bufp, fromIntegral bytesRead)
+                  return $ Yield bs (file, bufp, ref)
+      )
+      ( \() -> liftIO $ mask_ $ do
+          file@(File _ fileFinalizer) <- getFileByPathOrIndex z flags pathOrIndex
+          bufp <- mallocBytes $ fromIntegral chunkSize
+          ref <- newIOFinalizer $ do
+            free bufp
+            runIOFinalizer fileFinalizer
+          return (file, bufp, ref)
+      )
 
 {-# INLINE chunkSize #-}
 chunkSize :: Zip_uint64_t

@@ -17,8 +17,8 @@ data Zip_file_t
 foreign import ccall safe "zip.h zip_open"
   c_zip_open :: CString -> CInt -> Ptr CInt -> IO (Ptr Zip_t)
 
-foreign import ccall safe "zip.h zip_discard"
-  c_zip_discard :: Ptr Zip_t -> IO ()
+foreign import ccall safe "zip.h &zip_discard"
+  c_zip_discard_ptr :: FunPtr (Ptr Zip_t -> IO ())
 
 -- As this library currently only does reading, we don’t export zip_close().
 
