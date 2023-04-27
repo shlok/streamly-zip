@@ -138,7 +138,7 @@ unfoldFile z@(Zip zipfp) flags pathOrIndex =
       ( \(file@(File filep _), bufp, ref) -> liftIO $ do
           bytesRead <- c_zip_fread filep bufp chunkSize
           if bytesRead < 0
-            then error "todo: throw exception"
+            then error $ "todo: throw exception " ++ show bytesRead
             else
               if bytesRead == 0
                 then do
