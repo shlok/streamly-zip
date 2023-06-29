@@ -34,6 +34,10 @@ import Streamly.External.Zip.Internal.Foreign
 import Streamly.Internal.Data.Unfold.Type
 
 -- | Opens the zip archive at the given file path.
+--
+-- Thread safety: To satisfy low-level libzip requirements, please use each 'Zip' from one thread
+-- only—or manually synchronize its use. Note that it is perfectly fine to open multiple 'Zip's for
+-- a single zip file on disk.
 openZip :: FilePath -> [OpenFlag] -> IO Zip
 openZip fp flags =
   -- This library is currently read-only; always open the archive in read-only mode.
