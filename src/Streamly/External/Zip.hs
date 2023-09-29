@@ -26,9 +26,9 @@ where
 import Control.Exception
 import Control.Monad.IO.Class
 import Data.ByteString
-import Data.Void
 import Foreign
 import Foreign.C.String
+import qualified Streamly.Data.Unfold as U
 import Streamly.External.Zip.Internal
 import Streamly.External.Zip.Internal.Foreign
 import Streamly.Internal.Data.Unfold.Type
@@ -73,10 +73,10 @@ getPathByIndex (Zip zipfp) idx flags =
 
 -- | Creates an @Unfold@ with which we can stream data out of the entry at the given path (e.g.,
 -- @"foo.txt"@, @"foo/"@, or @"foo/bar.txt"@).
-unfoldFileAtPath :: (MonadIO m) => Zip -> [GetFileFlag] -> String -> Unfold m Void ByteString
-unfoldFileAtPath z flags path = unfoldFile z flags (Left path)
+unfoldFileAtPath :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], String) ByteString
+unfoldFileAtPath = U.lmap (\(z, fl, p) -> (z, fl, Left p)) unfoldFile
 
 -- | Creates an @Unfold@ with which we can stream data out of the entry at the given index. Please
 -- use 'getNumEntries' to find the upper bound for the index.
-unfoldFileAtIndex :: (MonadIO m) => Zip -> [GetFileFlag] -> Int -> Unfold m Void ByteString
-unfoldFileAtIndex z flags idx = unfoldFile z flags (Right idx)
+unfoldFileAtIndex :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], Int) ByteString
+unfoldFileAtIndex = U.lmap (\(z, fl, idx) -> (z, fl, Right idx)) unfoldFile

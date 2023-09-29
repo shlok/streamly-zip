@@ -10,11 +10,9 @@ import Data.List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.Void
 import Foreign
 import Foreign.C.String
 import Foreign.C.Types (CInt)
-import qualified Streamly.Data.Unfold as U
 import Streamly.External.Zip.Internal.Foreign
 import Streamly.Internal.Data.IOFinalizer
 import Streamly.Internal.Data.Stream.StreamD.Type (Step (..))
@@ -132,32 +130,31 @@ getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = do
       return $ File filep ref
 
 {-# INLINE unfoldFile #-}
-unfoldFile :: (MonadIO m) => Zip -> [GetFileFlag] -> Either String Int -> Unfold m Void ByteString
-unfoldFile z@(Zip zipfp) flags pathOrIndex =
-  (U.lmap . const) () $
-    Unfold
-      ( \(file@(File filep _), bufp, ref) -> liftIO $ do
-          bytesRead <- c_zip_fread filep bufp chunkSize
-          if bytesRead < 0
-            then error $ "todo: throw exception " ++ show bytesRead
-            else
-              if bytesRead == 0
-                then do
-                  runIOFinalizer ref
-                  touchForeignPtr zipfp -- Keep zip alive for (at least) the duration of the Unfold.
-                  return Stop
-                else do
-                  bs <- packCStringLen (bufp, fromIntegral bytesRead)
-                  return $ Yield bs (file, bufp, ref)
-      )
-      ( \() -> liftIO $ mask_ $ do
-          file@(File _ fileFinalizer) <- getFileByPathOrIndex z flags pathOrIndex
-          bufp <- mallocBytes $ fromIntegral chunkSize
-          ref <- newIOFinalizer $ do
-            free bufp
-            runIOFinalizer fileFinalizer
-          return (file, bufp, ref)
-      )
+unfoldFile :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], Either String Int) ByteString
+unfoldFile =
+  Unfold
+    ( \(z@(Zip zipfp), file@(File filep _), bufp, ref) -> liftIO $ do
+        bytesRead <- c_zip_fread filep bufp chunkSize
+        if bytesRead < 0
+          then error $ "todo: throw exception " ++ show bytesRead
+          else
+            if bytesRead == 0
+              then do
+                runIOFinalizer ref
+                touchForeignPtr zipfp -- Keep zip alive for (at least) the duration of the Unfold.
+                return Stop
+              else do
+                bs <- packCStringLen (bufp, fromIntegral bytesRead)
+                return $ Yield bs (z, file, bufp, ref)
+    )
+    ( \(z, flags, pathOrIndex) -> liftIO $ mask_ $ do
+        file@(File _ fileFinalizer) <- getFileByPathOrIndex z flags pathOrIndex
+        bufp <- mallocBytes $ fromIntegral chunkSize
+        ref <- newIOFinalizer $ do
+          free bufp
+          runIOFinalizer fileFinalizer
+        return (z, file, bufp, ref)
+    )
 
 {-# INLINE chunkSize #-}
 chunkSize :: Zip_uint64_t

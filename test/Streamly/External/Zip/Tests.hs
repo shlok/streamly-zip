@@ -30,8 +30,8 @@ testDataZip = testCase "testDataZip" $ do
   let indexedPaths = zip [0 ..] paths
 
   let fol = S.fold (F.foldl' B.append B.empty)
-      pathToBs p = S.unfold (unfoldFileAtPath z [] p) undefined & fol
-      idxToBs idx = S.unfold (unfoldFileAtIndex z [] idx) undefined & fol
+      pathToBs p = S.unfold unfoldFileAtPath (z, [], p) & fol
+      idxToBs idx = S.unfold unfoldFileAtIndex (z, [], idx) & fol
 
   fileBytestrings2 <- forM indexedPaths $ \(idx, path) -> do
     (,) <$> pathToBs (unpack path) <*> idxToBs idx
