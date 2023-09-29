@@ -60,8 +60,8 @@ getNumEntries (Zip zipfp) =
           else return $ fromIntegral num
 
 -- | Gets the path (e.g., @"foo.txt"@, @"foo/"@, or @"foo/bar.txt"@) of the file at the given
--- 0-based index in the given zip archive. Use 'getNumEntries' to find the upper bound for the
--- index.
+-- 0-based index in the given zip archive. Please use 'getNumEntries' to find the upper bound for
+-- the index.
 getPathByIndex :: Zip -> Int -> [PathFlag] -> IO ByteString
 getPathByIndex (Zip zipfp) idx flags =
   let flags' = combineFlags pathFlags flags
@@ -76,7 +76,7 @@ getPathByIndex (Zip zipfp) idx flags =
 unfoldFileAtPath :: (MonadIO m) => Zip -> [GetFileFlag] -> String -> Unfold m Void ByteString
 unfoldFileAtPath z flags path = unfoldFile z flags (Left path)
 
--- | Creates an @Unfold@ with which we can stream data out of the entry at the given index. Use
--- 'getNumEntries' to find the upper bound for the index.
+-- | Creates an @Unfold@ with which we can stream data out of the entry at the given index. Please
+-- use 'getNumEntries' to find the upper bound for the index.
 unfoldFileAtIndex :: (MonadIO m) => Zip -> [GetFileFlag] -> Int -> Unfold m Void ByteString
 unfoldFileAtIndex z flags idx = unfoldFile z flags (Right idx)

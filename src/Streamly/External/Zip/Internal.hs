@@ -111,7 +111,8 @@ getFileFlags =
     ]
 
 -- We don't publicly expose getting a 'File' (and then unfolding from it) because we don't want
--- users to unfold from the same 'File' more than once.
+-- users to unfold from the same 'File' more than once. (Performing a 'c_zip_fread' iteration
+-- through a file more than once makes no sense.)
 getFileByPathOrIndex :: Zip -> [GetFileFlag] -> Either String Int -> IO File
 getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = do
   let flags' = combineFlags getFileFlags flags
