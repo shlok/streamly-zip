@@ -28,10 +28,10 @@ import Control.Monad.IO.Class
 import Data.ByteString
 import Foreign
 import Foreign.C.String
+import Streamly.Data.Unfold (Unfold)
 import qualified Streamly.Data.Unfold as U
 import Streamly.External.Zip.Internal
 import Streamly.External.Zip.Internal.Foreign
-import Streamly.Internal.Data.Unfold.Type
 
 -- | Opens the zip archive at the given file path.
 --

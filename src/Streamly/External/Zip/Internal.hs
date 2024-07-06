@@ -13,10 +13,10 @@ import Data.Maybe
 import Foreign
 import Foreign.C.String
 import Foreign.C.Types (CInt)
+import Streamly.Data.Unfold (Unfold)
 import Streamly.External.Zip.Internal.Foreign
 import Streamly.Internal.Data.IOFinalizer
-import Streamly.Internal.Data.Stream.StreamD.Type (Step (..))
-import Streamly.Internal.Data.Unfold.Type
+import qualified Streamly.Internal.Data.Unfold as U
 
 -- | A zip archive.
 newtype Zip
@@ -132,7 +132,7 @@ getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = do
 {-# INLINE unfoldFile #-}
 unfoldFile :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], Either String Int) ByteString
 unfoldFile =
-  Unfold
+  U.mkUnfoldM
     ( \(z@(Zip zipfp), file@(File filep _), bufp, ref) -> liftIO $ do
         bytesRead <- c_zip_fread filep bufp chunkSize
         if bytesRead < 0
@@ -142,10 +142,10 @@ unfoldFile =
               then do
                 runIOFinalizer ref
                 touchForeignPtr zipfp -- Keep zip alive for (at least) the duration of the Unfold.
-                return Stop
+                return U.Stop
               else do
                 bs <- packCStringLen (bufp, fromIntegral bytesRead)
-                return $ Yield bs (z, file, bufp, ref)
+                return $ U.Yield bs (z, file, bufp, ref)
     )
     ( \(z, flags, pathOrIndex) -> liftIO $ mask_ $ do
         file@(File _ fileFinalizer) <- getFileByPathOrIndex z flags pathOrIndex
