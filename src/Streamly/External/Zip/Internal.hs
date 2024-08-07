@@ -1,22 +1,26 @@
--- We want to make things that are not publicly exposed available nonetheless to advanced users;
--- hence this module.
+{-# LANGUAGE TypeApplications #-}
+
 module Streamly.External.Zip.Internal where
 
 import Control.Exception
-import Control.Monad (when)
+import Control.Monad
 import Control.Monad.IO.Class
-import Data.ByteString (ByteString, packCStringLen)
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import Data.List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Foreign
 import Foreign.C.String
-import Foreign.C.Types (CInt)
+import Foreign.C.Types
 import Streamly.Data.Unfold (Unfold)
+import Streamly.External.Zip.Internal.Error
 import Streamly.External.Zip.Internal.Foreign
 import Streamly.Internal.Data.IOFinalizer
 import qualified Streamly.Internal.Data.Unfold as U
+import Text.Printf
 
 -- | A zip archive.
 newtype Zip
@@ -27,29 +31,39 @@ newtype Zip
 -- applicable for this library, e.g., because this library is currently read-only.
 
 data OpenFlag
-  = -- | Perform additional stricter consistency checks on the archive, and error if they fail.
+  = -- Most libzip flags not included; see (*).
+
+    -- | Perform additional stricter consistency checks on the archive, and error if they fail.
     O_CHECKCONS
-  | -- | Create the archive if it does not exist.
-    O_CREATE
-  | -- | Error if archive already exists.
-    O_EXCL
-  | -- | If archive exists, ignore its current contents. In other words, handle it the same way as
-    -- an empty archive.
-    O_TRUNCATE
-  -- -- | Open archive in read-only mode.
-  --   O_RDONLY
   deriving (Eq, Ord)
 
--- Not publicly exported.
+-- | /Internal/.
 openFlags :: Map OpenFlag CInt
 openFlags =
   M.fromList
-    [ (O_CHECKCONS, zip_checkcons),
-      (O_CREATE, zip_create),
-      (O_EXCL, zip_excl),
-      (O_TRUNCATE, zip_truncate)
-      -- (O_RDONLY, #const ZIP_RDONLY)
+    [ (O_CHECKCONS, zip_checkcons)
+    -- (O_CREATE, zip_create), -- See (*).
+    -- (O_EXCL, zip_excl),
+    -- (O_TRUNCATE, zip_truncate)
+    -- (O_RDONLY, zip_rdonly)
     ]
+
+-- | Opens the zip archive at the given file path.
+--
+-- /Warning/: To satisfy low-level libzip requirements, please use each 'Zip' from one thread
+-- only—or make sure to synchronize its use. Note that it is perfectly fine to open multiple 'Zip's
+-- for a single zip file on disk.
+openZip :: FilePath -> [OpenFlag] -> IO Zip
+openZip fp flags =
+  -- This library is currently read-only; always open the archive in read-only mode; see (*).
+  let flags' = zip_rdonly .|. combineFlags openFlags flags
+   in withCString fp $ \fpc -> mask_ $ do
+        zipp <- c_zip_open fpc flags' nullPtr
+        if zipp == nullPtr
+          then do
+            err <- BC.unpack <$> (B.packCString =<< c_zip_strerror zipp)
+            throwError "openZip" err
+          else Zip <$> newForeignPtr c_zip_discard_ptr zipp
 
 -- See (*).
 -- data NumEntriesFlag
@@ -64,9 +78,20 @@ openFlags =
 
 -- getNumEntries :: Zip -> [NumEntriesFlag] -> IO Int
 
+-- | Gets the number of entries in the given archive.
+getNumEntries :: Zip -> IO Int
+getNumEntries (Zip zipfp) =
+  let flags' = 0 -- combineFlags numEntriesFlags flags; see (*).
+   in do
+        num <- withForeignPtr zipfp $ \zipp -> c_zip_get_num_entries zipp flags'
+        if num < 0
+          then -- c_zip_get_num_entries should not return -1 here, for zipp is known to be non-NULL.
+            throwError "getNumEntries" "unexpected"
+          else return $ fromIntegral num
+
 data PathFlag
   = --
-    --   -- | The original unchanged filename is returned
+    --   -- | The original unchanged filename is returned. -- See (*).
     --   P_FL_UNCHANGED
 
     -- | Return the unmodified names as it is in the ZIP archive.
@@ -74,21 +99,38 @@ data PathFlag
   | -- | (Default.) Guess the encoding of the name in the ZIP archive and convert it to UTF-8, if
     -- necessary. (Only CP-437 and UTF-8 are recognized.)
     P_FL_ENC_GUESS
-  | -- | Follow the ZIP specification and expect CP-437 encoded names in the ZIP archive (except
-    -- if they are explicitly marked as UTF-8). Convert it to UTF-8.
+  | -- | Follow the ZIP specification and expect CP-437 encoded names in the ZIP archive (except if
+    -- they are explicitly marked as UTF-8). Convert it to UTF-8.
     P_FL_ENC_STRICT
   deriving (Eq, Ord)
 
+-- | /Internal/.
 pathFlags :: Map PathFlag Zip_flags_t
 pathFlags =
   M.fromList
-    [ -- (P_FL_UNCHANGED, zip_fl_unchanged)
+    [ -- (P_FL_UNCHANGED, zip_fl_unchanged) -- See (*).
       (P_FL_ENC_RAW, zip_fl_enc_raw),
       (P_FL_ENC_GUESS, zip_fl_enc_guess),
       (P_FL_ENC_STRICT, zip_fl_enc_strict)
     ]
 
+-- | Gets the path (e.g., @"foo.txt"@, @"foo/"@, or @"foo/bar.txt"@) of the file at the given
+-- 0-based index in the given zip archive. Please use 'getNumEntries' to find the upper bound for
+-- the index.
+getPathByIndex :: Zip -> Int -> [PathFlag] -> IO ByteString
+getPathByIndex (Zip zipfp) idx flags =
+  let flags' = combineFlags pathFlags flags
+   in withForeignPtr zipfp $ \zipp -> do
+        name <- c_zip_get_name zipp (fromIntegral idx) flags'
+        if name == nullPtr
+          then do
+            err <- BC.unpack <$> (B.packCString =<< c_zip_strerror zipp)
+            throwError "getPathByIndex" err
+          else B.packCString name
+
 -- | A file inside of a 'Zip' archive.
+--
+-- /Internal/.
 data File
   = File
       !(Ptr Zip_file_t) -- ForeignPtr does not work because zip_fclose() does not return void.
@@ -101,6 +143,7 @@ data GetFileFlag
   --  GF_FL_UNCHANGED
   deriving (Eq, Ord)
 
+-- /Internal/.
 getFileFlags :: Map GetFileFlag Zip_flags_t
 getFileFlags =
   M.fromList
@@ -108,27 +151,43 @@ getFileFlags =
     -- (GF_FL_UNCHANGED, zip_fl_unchanged)
     ]
 
--- We don't publicly expose getting a 'File' (and then unfolding from it) because we don't want
--- users to unfold from the same 'File' more than once. (Performing a 'c_zip_fread' iteration
--- through a file more than once makes no sense.)
+-- | We don't publicly expose getting a 'File' (and then unfolding from it) because we don't want
+-- users to unfold from the same 'File' more than once. (libzip’s @c_zip_fread@ isn’t designed for
+-- iterating through a file more than once.)
+--
+-- /Internal/.
 getFileByPathOrIndex :: Zip -> [GetFileFlag] -> Either String Int -> IO File
-getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = do
+getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = mask_ $ do
   let flags' = combineFlags getFileFlags flags
   filep <- case pathOrIdx of
     Left path ->
-      withCString path $ \pathc -> withForeignPtr zipfp $ \zipp ->
-        c_zip_fopen zipp pathc flags'
+      withCString path $ \pathc -> withForeignPtr zipfp $ \zipp -> do
+        filep <- c_zip_fopen zipp pathc flags'
+        when (filep == nullPtr) $ do
+          err <- BC.unpack <$> (B.packCString =<< c_zip_strerror zipp)
+          -- Keep zip alive (at least) until we have gotten the above error. This should take care
+          -- of touchForeignPtr’s “divergence” caveat. Ref (**).
+          touchForeignPtr zipfp
+          throwError "Error opening file at path" err
+        return filep
     Right idx ->
-      withForeignPtr zipfp $ \zipp ->
-        c_zip_fopen_index zipp (fromIntegral idx) flags'
-  if filep == nullPtr
-    then error $ "todo: throw exception; file could not be opened: " ++ show pathOrIdx
-    else do
-      ref <- newIOFinalizer $ do
-        ret <- c_zip_fclose filep
-        when (ret /= 0) $ error "todo: throw exception"
-      return $ File filep ref
+      withForeignPtr zipfp $ \zipp -> do
+        filep <- c_zip_fopen_index zipp (fromIntegral idx) flags'
+        when (filep == nullPtr) $ do
+          err <- BC.unpack <$> (B.packCString =<< c_zip_strerror zipp)
+          touchForeignPtr zipfp -- See (**).
+          throwError "Error opening file at index" err
+        return filep
+  ref <- newIOFinalizer $ do
+    ret <- c_zip_fclose filep
+    touchForeignPtr zipfp -- See (**).
+    when (ret /= 0) $
+      throwError
+        "Error closing file"
+        (printf "zip_fclose() return code: %d" (fromIntegral @_ @Int ret))
+  return $ File filep ref
 
+-- /Internal/.
 {-# INLINE unfoldFile #-}
 unfoldFile :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], Either String Int) ByteString
 unfoldFile =
@@ -136,32 +195,49 @@ unfoldFile =
     ( \(z@(Zip zipfp), file@(File filep _), bufp, ref) -> liftIO $ do
         bytesRead <- c_zip_fread filep bufp chunkSize
         if bytesRead < 0
-          then error $ "todo: throw exception " ++ show bytesRead
+          then
+            throwError
+              "Error reading file"
+              (printf "zip_fread() return value: %d" (fromIntegral @_ @Int bytesRead))
           else
             if bytesRead == 0
               then do
                 runIOFinalizer ref
-                touchForeignPtr zipfp -- Keep zip alive for (at least) the duration of the Unfold.
+                -- Keep zip alive for (at least) the duration of the unfold. See also (**).
+                touchForeignPtr zipfp
                 return U.Stop
               else do
-                bs <- packCStringLen (bufp, fromIntegral bytesRead)
+                bs <- B.packCStringLen (bufp, fromIntegral bytesRead)
                 return $ U.Yield bs (z, file, bufp, ref)
     )
-    ( \(z, flags, pathOrIndex) -> liftIO $ mask_ $ do
+    ( \(z@(Zip zipfp), flags, pathOrIndex) -> liftIO $ mask_ $ do
         file@(File _ fileFinalizer) <- getFileByPathOrIndex z flags pathOrIndex
         bufp <- mallocBytes $ fromIntegral chunkSize
         ref <- newIOFinalizer $ do
           free bufp
           runIOFinalizer fileFinalizer
+          touchForeignPtr zipfp -- See also (**).
         return (z, file, bufp, ref)
     )
 
+-- /Internal/.
 {-# INLINE chunkSize #-}
 chunkSize :: Zip_uint64_t
 chunkSize = 64000
 
+-- /Internal/.
 combineFlags :: (Ord flagType, Bits a, Num a) => Map flagType a -> [flagType] -> a
 combineFlags allFlags =
   foldl'
     (\acc chosenFlag -> acc .|. fromMaybe (error "flag expected") (M.lookup chosenFlag allFlags))
     0
+
+-- | Creates an @Unfold@ with which one can stream data out of the entry at the given path (e.g.,
+-- @"foo.txt"@, @"foo/"@, or @"foo/bar.txt"@).
+unfoldFileAtPath :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], String) ByteString
+unfoldFileAtPath = U.lmap (\(z, fl, p) -> (z, fl, Left p)) unfoldFile
+
+-- | Creates an @Unfold@ with which one can stream data out of the entry at the given index. Please
+-- use 'getNumEntries' to find the upper bound for the index.
+unfoldFileAtIndex :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], Int) ByteString
+unfoldFileAtIndex = U.lmap (\(z, fl, idx) -> (z, fl, Right idx)) unfoldFile

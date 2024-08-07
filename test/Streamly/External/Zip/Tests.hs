@@ -6,12 +6,12 @@ import Control.Monad
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as Base16
-import Data.ByteString.Char8 (unpack)
+import qualified Data.ByteString.Char8 as BC8
 import Data.Function
 import qualified Streamly.Data.Fold as F
 import qualified Streamly.Data.Stream.Prelude as S
 import Streamly.External.Zip
-import Test.Tasty (TestTree)
+import Test.Tasty
 import Test.Tasty.HUnit
 
 tests :: [TestTree]
@@ -34,7 +34,7 @@ testDataZip = testCase "testDataZip" $ do
       idxToBs idx = S.unfold unfoldFileAtIndex (z, [], idx) & fol
 
   fileBytestrings2 <- forM indexedPaths $ \(idx, path) -> do
-    (,) <$> pathToBs (unpack path) <*> idxToBs idx
+    (,) <$> pathToBs (BC8.unpack path) <*> idxToBs idx
 
   let fileBytestrings = map fst fileBytestrings2
   assertEqual "" fileBytestrings (map snd fileBytestrings2)

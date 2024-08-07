@@ -26,6 +26,7 @@ library
   exposed-modules:
       Streamly.External.Zip
       Streamly.External.Zip.Internal
+      Streamly.External.Zip.Internal.Error
       Streamly.External.Zip.Internal.Foreign
   other-modules:
       Paths_streamly_zip

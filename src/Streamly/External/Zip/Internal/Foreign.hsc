@@ -40,6 +40,12 @@ foreign import ccall safe "zip.h zip_fclose"
 foreign import ccall safe "zip.h zip_fread"
   c_zip_fread :: Ptr Zip_file_t -> Ptr CChar -> Zip_uint64_t -> IO Zip_int64_t
 
+foreign import ccall safe "zip.h zip_strerror"
+  c_zip_strerror :: Ptr Zip_t -> IO (Ptr CChar)
+
+foreign import ccall safe "zip.h zip_file_strerror"
+  c_zip_file_strerror :: Ptr Zip_file_t -> IO (Ptr CChar)
+
 -- All flags relevant for the libzip functions we use.
 zip_checkcons,
   zip_create,
