@@ -1,18 +1,23 @@
 module Streamly.External.Zip.Internal.Foreign where
 
-import Data.Int (Int64)
-import Foreign (FunPtr, Ptr, Word32, Word64)
-import Foreign.C.String (CString)
-import Foreign.C.Types (CChar, CInt (CInt))
+import Data.Int
+import Foreign
+import Foreign.C.String
+import Foreign.C.Types
 
 #include <zip.h>
 type Zip_flags_t = #type zip_flags_t
 type Zip_int64_t = #type zip_int64_t
 type Zip_uint64_t = #type zip_uint64_t
 
+zip_error_t_size :: Int
+zip_error_t_size = #size zip_error_t
+
 data Zip_t
 
 data Zip_file_t
+
+data Zip_error_t
 
 foreign import ccall safe "zip.h zip_open"
   c_zip_open :: CString -> CInt -> Ptr CInt -> IO (Ptr Zip_t)
@@ -43,8 +48,17 @@ foreign import ccall safe "zip.h zip_fread"
 foreign import ccall safe "zip.h zip_strerror"
   c_zip_strerror :: Ptr Zip_t -> IO (Ptr CChar)
 
-foreign import ccall safe "zip.h zip_file_strerror"
-  c_zip_file_strerror :: Ptr Zip_file_t -> IO (Ptr CChar)
+-- foreign import ccall safe "zip.h zip_file_strerror"
+--   c_zip_file_strerror :: Ptr Zip_file_t -> IO (Ptr CChar)
+
+foreign import ccall safe "zip.h zip_error_init_with_code"
+  c_zip_error_init_with_code :: Ptr Zip_error_t -> CInt -> IO ()
+
+foreign import ccall safe "zip.h zip_error_strerror"
+  c_zip_error_strerror :: Ptr Zip_error_t -> IO (Ptr CChar)
+
+foreign import ccall safe "zip.h zip_error_fini"
+  c_zip_error_fini :: Ptr Zip_error_t -> IO ()
 
 -- All flags relevant for the libzip functions we use.
 zip_checkcons,

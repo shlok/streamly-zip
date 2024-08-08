@@ -57,11 +57,11 @@ openZip :: FilePath -> [OpenFlag] -> IO Zip
 openZip fp flags =
   -- This library is currently read-only; always open the archive in read-only mode; see (*).
   let flags' = zip_rdonly .|. combineFlags openFlags flags
-   in withCString fp $ \fpc -> mask_ $ do
-        zipp <- c_zip_open fpc flags' nullPtr
+   in withCString fp $ \fpc -> alloca $ \errp -> mask_ $ do
+        zipp <- c_zip_open fpc flags' errp
         if zipp == nullPtr
           then do
-            err <- BC.unpack <$> (B.packCString =<< c_zip_strerror zipp)
+            err <- libzipErrToString =<< peek errp
             throwError "openZip" err
           else Zip <$> newForeignPtr c_zip_discard_ptr zipp
 
