@@ -49,6 +49,7 @@ test-suite streamly-zip-test
   type: exitcode-stdio-1.0
   main-is: TestSuite.hs
   other-modules:
+      ReadmeMain
       Streamly.External.Zip.Tests
       Paths_streamly_zip
   autogen-modules:
