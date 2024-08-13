@@ -1,14 +1,14 @@
 cabal-version:    3.0
 name:             streamly-zip
 version:          0.0.1
-synopsis:         Stream data from zip and zip64 archives using the streamly library.
+synopsis:         Stream data from zip archives using the streamly library.
 description:      Please see the README on GitHub at <https://github.com/shlok/streamly-zip#readme>
 category:         Archive, Codec, Streaming, Streamly
 homepage:         https://github.com/shlok/streamly-zip
 bug-reports:      https://github.com/shlok/streamly-zip/issues
 author:           Shlok Datye
 maintainer:       sd-haskell@quant.is
-copyright:        2023 Shlok Datye
+copyright:        2024 Shlok Datye
 license:          BSD-3-Clause
 license-file:     LICENSE
 build-type:       Simple
