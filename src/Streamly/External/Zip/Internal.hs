@@ -1,3 +1,4 @@
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Streamly.External.Zip.Internal where
@@ -15,6 +16,8 @@ import Data.Maybe
 import Foreign
 import Foreign.C.String
 import Foreign.C.Types
+import GHC.Exts
+import GHC.IO hiding (liftIO)
 import Streamly.Data.Unfold (Unfold)
 import Streamly.External.Zip.Internal.Error
 import Streamly.External.Zip.Internal.Foreign
@@ -157,7 +160,7 @@ getFileFlags =
 --
 -- /Internal/.
 getFileByPathOrIndex :: Zip -> [GetFileFlag] -> Either String Int -> IO File
-getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = mask_ $ do
+getFileByPathOrIndex z@(Zip zipfp) flags pathOrIdx = mask_ $ do
   let flags' = combineFlags getFileFlags flags
   filep <- case pathOrIdx of
     Left path ->
@@ -165,9 +168,6 @@ getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = mask_ $ do
         filep <- c_zip_fopen zipp pathc flags'
         when (filep == nullPtr) $ do
           err <- BC.unpack <$> (B.packCString =<< c_zip_strerror zipp)
-          -- Keep zip alive (at least) until we have gotten the above error. This should take care
-          -- of touchForeignPtr’s “divergence” caveat. Ref (**).
-          touchForeignPtr zipfp
           throwError "Error opening file at path" err
         return filep
     Right idx ->
@@ -175,12 +175,12 @@ getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = mask_ $ do
         filep <- c_zip_fopen_index zipp (fromIntegral idx) flags'
         when (filep == nullPtr) $ do
           err <- BC.unpack <$> (B.packCString =<< c_zip_strerror zipp)
-          touchForeignPtr zipfp -- See (**).
           throwError "Error opening file at index" err
         return filep
   ref <- newIOFinalizer $ do
-    ret <- c_zip_fclose filep
-    touchForeignPtr zipfp -- See (**).
+    ret <- IO $ \s0 ->
+      -- Make sure z stays alive for successful filep closure.
+      keepAlive# z s0 (unIO $ c_zip_fclose filep)
     when (ret /= 0) $
       throwError
         "Error closing file"
@@ -192,7 +192,7 @@ getFileByPathOrIndex (Zip zipfp) flags pathOrIdx = mask_ $ do
 unfoldFile :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], Either String Int) ByteString
 unfoldFile =
   U.mkUnfoldM
-    ( \(z@(Zip zipfp), file@(File filep _), bufp, ref) -> liftIO $ do
+    ( \(z, file@(File filep _), bufp, ref) -> liftIO $ do
         bytesRead <- c_zip_fread filep bufp chunkSize
         if bytesRead < 0
           then
@@ -203,20 +203,17 @@ unfoldFile =
             if bytesRead == 0
               then do
                 runIOFinalizer ref
-                -- Keep zip alive for (at least) the duration of the unfold. See also (**).
-                touchForeignPtr zipfp
                 return U.Stop
               else do
                 bs <- B.packCStringLen (bufp, fromIntegral bytesRead)
                 return $ U.Yield bs (z, file, bufp, ref)
     )
-    ( \(z@(Zip zipfp), flags, pathOrIndex) -> liftIO $ mask_ $ do
+    ( \(z, flags, pathOrIndex) -> liftIO $ mask_ $ do
         file@(File _ fileFinalizer) <- getFileByPathOrIndex z flags pathOrIndex
         bufp <- mallocBytes $ fromIntegral chunkSize
         ref <- newIOFinalizer $ do
           free bufp
           runIOFinalizer fileFinalizer
-          touchForeignPtr zipfp -- See also (**).
         return (z, file, bufp, ref)
     )
 
