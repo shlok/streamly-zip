@@ -14,6 +14,8 @@ import Data.List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
+import Data.Time.Clock
+import Data.Time.Clock.POSIX
 import Foreign
 import Foreign.C.String
 import Foreign.C.Types
@@ -226,6 +228,205 @@ unfoldFile =
         return (z, file, bufp, ref)
     )
 
+-- | Information about a file within a zip archive.
+newtype FileInfo
+  = -- A ForeignPtr works because free() returns void.
+    FileInfo (ForeignPtr Zip_stat_t)
+
+-- | /Internal/.
+getFileInfoByPathOrIndex :: Zip -> Either String Int -> IO FileInfo
+getFileInfoByPathOrIndex (Zip zipfp) pathOrIdx = do
+  -- Similarly to getFileByPathOrIndex, we for now don’t bother with the name-lookup flags
+  -- documented at https://libzip.org/documentation/zip_name_locate.html. (And since
+  -- @ZIP_FL_UNCHANGED@ is the only other applicable flag, but not used by streamly-zip because it’s
+  -- read-only (see (*)), there is no flags parameter.)
+  fi@(FileInfo zsfp) <- mask_ $ do
+    zsp <- malloc @Zip_stat_t
+    FileInfo <$> newForeignPtr finalizerFree zsp
+  withForeignPtr zipfp $ \zipp -> withForeignPtr zsfp $ \zsp -> do
+    case pathOrIdx of
+      Left path -> withCString path $ \pathc -> do
+        c_zip_stat zipp pathc 0 zsp
+          >>= \r -> when (r /= 0) $ do
+            err <- BC.unpack <$> (B.packCString =<< c_zip_strerror zipp)
+            throwError "Error getting FileInfo at path" err
+        return fi
+      Right idx -> do
+        c_zip_stat_index zipp (fromIntegral idx) 0 zsp
+          >>= \r -> when (r /= 0) $ do
+            err <- BC.unpack <$> (B.packCString =<< c_zip_strerror zipp)
+            throwError "Error getting FileInfo at index" err
+        return fi
+
+-- | Gets file name from a @FileInfo@; @Nothing@ if not available.
+getFileName :: FileInfo -> IO (Maybe String)
+getFileName (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
+  zs <- peek zsp
+  if s_valid zs .&. zip_stat_name /= 0
+    then Just <$> peekCString (s_name zs)
+    else return Nothing
+
+-- | Gets index within archive from a @FileInfo@; @Nothing@ if not available.
+getFileIndex :: FileInfo -> IO (Maybe Int)
+getFileIndex (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
+  zs <- peek zsp
+  return $
+    if s_valid zs .&. zip_stat_index /= 0
+      then Just . fromIntegral $ s_index zs
+      else Nothing
+
+-- | Gets uncompressed file size from a @FileInfo@; @Nothing@ if not available.
+getFileSize :: FileInfo -> IO (Maybe Int)
+getFileSize (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
+  zs <- peek zsp
+  return $
+    if s_valid zs .&. zip_stat_size /= 0
+      then Just . fromIntegral $ s_size zs
+      else Nothing
+
+-- | Gets compressed file size from a @FileInfo@; @Nothing@ if not available.
+getFileCompressedSize :: FileInfo -> IO (Maybe Int)
+getFileCompressedSize (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
+  zs <- peek zsp
+  return $
+    if s_valid zs .&. zip_stat_comp_size /= 0
+      then Just . fromIntegral $ s_comp_size zs
+      else Nothing
+
+-- | Gets modification time from a @FileInfo@; @Nothing@ if not available.
+getFileModificationTime :: FileInfo -> IO (Maybe UTCTime)
+getFileModificationTime (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
+  zs <- peek zsp
+  return $
+    if s_valid zs .&. zip_stat_mtime /= 0
+      then let CTime secs = s_mtime zs in Just . posixSecondsToUTCTime . fromIntegral $ secs
+      else Nothing
+
+-- | Gets CRC checksum from a @FileInfo@; @Nothing@ if not available.
+getFileCRC :: FileInfo -> IO (Maybe Word32)
+getFileCRC (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
+  zs <- peek zsp
+  return $
+    if s_valid zs .&. zip_stat_crc /= 0
+      then Just . fromIntegral $ s_crc zs
+      else Nothing
+
+-- | Gets compression method from a @FileInfo@; @Nothing@ if not available.
+getFileCompressionMethod :: FileInfo -> IO (Maybe CompressionMethod)
+getFileCompressionMethod (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
+  zs <- peek zsp
+  return $
+    if s_valid zs .&. zip_stat_comp_method /= 0
+      then Just . fromMaybe CM_Unrecognized $ M.lookup (s_comp_method zs) compressionMethodsMap
+      else Nothing
+
+-- | Gets encryption method from a @FileInfo@; @Nothing@ if not available.
+getFileEncryptionMethod :: FileInfo -> IO (Maybe EncryptionMethod)
+getFileEncryptionMethod (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
+  zs <- peek zsp
+  return $
+    if s_valid zs .&. zip_stat_encryption_method /= 0
+      then Just . fromMaybe EM_Unrecognized $ M.lookup (s_encryption_method zs) encryptionMethodsMap
+      else Nothing
+
+-- | Compression method.
+data CompressionMethod
+  = -- https://github.com/nih-at/libzip/blob/e16526dbb751dc31129b32ba667ce6aed5c42f97/lib/zip.h
+    CM_STORE
+  | CM_SHRINK
+  | CM_REDUCE_1
+  | CM_REDUCE_2
+  | CM_REDUCE_3
+  | CM_REDUCE_4
+  | CM_IMPLODE
+  | CM_DEFLATE
+  | CM_DEFLATE64
+  | CM_PKWARE_IMPLODE
+  | CM_BZIP2
+  | CM_LZMA
+  | CM_TERSE
+  | CM_LZ77
+  | CM_LZMA2
+  | CM_ZSTD
+  | CM_XZ
+  | CM_JPEG
+  | CM_WAVPACK
+  | CM_PPMD
+  | -- | Please do not rely on an unrecognized compression method staying such in future versions of
+    -- libzip or streamly-zip.
+    CM_Unrecognized
+  deriving (Eq, Show)
+
+-- | /Internal/.
+compressionMethodsMap :: Map Zip_uint16_t CompressionMethod
+compressionMethodsMap =
+  M.fromList
+    [ (0, CM_STORE),
+      (1, CM_SHRINK),
+      (2, CM_REDUCE_1),
+      (3, CM_REDUCE_2),
+      (4, CM_REDUCE_3),
+      (5, CM_REDUCE_4),
+      (6, CM_IMPLODE),
+      (8, CM_DEFLATE),
+      (9, CM_DEFLATE64),
+      (10, CM_PKWARE_IMPLODE),
+      (12, CM_BZIP2),
+      (14, CM_LZMA),
+      (18, CM_TERSE),
+      (19, CM_LZ77),
+      (33, CM_LZMA2),
+      (93, CM_ZSTD),
+      (95, CM_XZ),
+      (96, CM_JPEG),
+      (97, CM_WAVPACK),
+      (98, CM_PPMD)
+    ]
+
+-- | Encryption method.
+data EncryptionMethod
+  = -- https://github.com/nih-at/libzip/blob/e16526dbb751dc31129b32ba667ce6aed5c42f97/lib/zip.h
+    EM_NONE
+  | EM_TRAD_PKWARE
+  | EM_DES
+  | EM_RC2_OLD
+  | EM_3DES_168
+  | EM_3DES_112
+  | EM_PKZIP_AES_128
+  | EM_PKZIP_AES_192
+  | EM_PKZIP_AES_256
+  | EM_RC2
+  | EM_RC4
+  | EM_AES_128
+  | EM_AES_192
+  | EM_AES_256
+  | EM_UNKNOWN
+  | -- | Please do not rely on an unrecognized encryption method staying such in future versions of
+    -- libzip or streamly-zip.
+    EM_Unrecognized
+  deriving (Eq, Show)
+
+-- | /Internal/.
+encryptionMethodsMap :: Map Zip_uint16_t EncryptionMethod
+encryptionMethodsMap =
+  M.fromList
+    [ (0, EM_NONE),
+      (1, EM_TRAD_PKWARE),
+      (0x6601, EM_DES),
+      (0x6602, EM_RC2_OLD),
+      (0x6603, EM_3DES_168),
+      (0x6609, EM_3DES_112),
+      (0x660e, EM_PKZIP_AES_128),
+      (0x660f, EM_PKZIP_AES_192),
+      (0x6610, EM_PKZIP_AES_256),
+      (0x6702, EM_RC2),
+      (0x6801, EM_RC4),
+      (0x0101, EM_AES_128),
+      (0x0102, EM_AES_192),
+      (0x0103, EM_AES_256),
+      (0xffff, EM_UNKNOWN)
+    ]
+
 -- | /Internal/.
 {-# INLINE chunkSize #-}
 chunkSize :: Zip_uint64_t
@@ -247,6 +448,16 @@ unfoldFileAtPath = U.lmap (\(z, fl, p) -> (z, fl, Left p)) unfoldFile
 -- use 'getNumEntries' to find the upper bound for the index.
 unfoldFileAtIndex :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], Int) ByteString
 unfoldFileAtIndex = U.lmap (\(z, fl, idx) -> (z, fl, Right idx)) unfoldFile
+
+-- | Gets information about a file at the given path (e.g., @"foo.txt"@, @"foo/"@, or
+-- @"foo/bar.txt"@) in the given zip archive.
+getFileInfoAtPath :: Zip -> String -> IO FileInfo
+getFileInfoAtPath z p = getFileInfoByPathOrIndex z (Left p)
+
+-- | Gets information about a file at the given index in the given zip archive. Please use
+-- 'getNumEntries' to find the upper bound for the index.
+getFileInfoAtIndex :: Zip -> Int -> IO FileInfo
+getFileInfoAtIndex z idx = getFileInfoByPathOrIndex z (Right idx)
 
 -- | /Internal/.
 {-# INLINE touch #-}

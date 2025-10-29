@@ -13,10 +13,25 @@ module Streamly.External.Zip
     PathFlag (..),
     getPathByIndex,
 
-    -- ** Streamly
+    -- ** Reading
     GetFileFlag (..),
     unfoldFileAtPath,
     unfoldFileAtIndex,
+
+    -- ** File information
+    FileInfo,
+    getFileInfoAtPath,
+    getFileInfoAtIndex,
+    getFileName,
+    getFileIndex,
+    getFileSize,
+    getFileCompressedSize,
+    getFileModificationTime,
+    getFileCRC,
+    getFileCompressionMethod,
+    getFileEncryptionMethod,
+    CompressionMethod (..),
+    EncryptionMethod (..),
   )
 where
 

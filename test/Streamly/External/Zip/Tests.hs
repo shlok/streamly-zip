@@ -1,5 +1,9 @@
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use underscore" #-}
 
 module Streamly.External.Zip.Tests (tests) where
 
@@ -10,6 +14,9 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Char8 as BC8
 import Data.Function
+import Data.Maybe
+import Data.Time.Clock
+import Data.Word
 import GHC.Conc
 import qualified Streamly.Data.Fold as F
 import qualified Streamly.Data.Stream.Prelude as S
@@ -19,10 +26,13 @@ import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
+import Text.Printf
+import Text.Read
 
 tests :: [TestTree]
 tests =
   [ testDataZip,
+    testDataZipFileInfo,
     testDataZipOneChunkConcurrent
   ]
 
@@ -58,6 +68,79 @@ testDataZip = testCase "testDataZip" $ do
         ]
 
   assertEqual "" hashes expectedHashes
+
+-- | Additional tests for @data.zip@: make sure the @FileInfo@s are as expected.
+testDataZipFileInfo :: TestTree
+testDataZipFileInfo = testCase "testDataZipFileInfo" $ do
+  z <- openZip "test/data/data.zip" []
+
+  -- Flip because in assertEqual, the expected value is the second one.
+  let flipAssert :: (Eq a, Show a) => String -> String -> a -> a -> Assertion
+      flipAssert fn field = flip $ assertEqual (printf "%s;%s" fn field)
+
+  let checkFile ::
+        String ->
+        Maybe Int ->
+        Maybe Int ->
+        Maybe Int ->
+        Maybe UTCTime ->
+        Maybe Word32 ->
+        Maybe CompressionMethod ->
+        Maybe EncryptionMethod ->
+        IO ()
+      checkFile fn fidx fsz fcsz fmt fcrc fcm fem = do
+        finfo <- getFileInfoAtPath z fn
+        getFileName finfo >>= flipAssert fn "fn" (Just fn)
+        getFileIndex finfo >>= flipAssert fn "fidx" fidx
+        getFileSize finfo >>= flipAssert fn "fsz" fsz
+        getFileCompressedSize finfo >>= flipAssert fn "fcsz" fcsz
+        getFileModificationTime finfo >>= flipAssert fn "fmt" fmt
+        getFileCRC finfo >>= flipAssert fn "fcrc" fcrc
+        getFileCompressionMethod finfo >>= flipAssert fn "fcm" fcm
+        getFileEncryptionMethod finfo >>= flipAssert fn "fem" fem
+
+  -- Note: To obtain CRC-32 for a file ourselves, we can use the crc32 command (available via
+  -- libarchive-zip-perl on Debian).
+
+  checkFile
+    "1byte"
+    (Just 0)
+    (Just 1)
+    (Just 1)
+    (Just . fromJust $ readMaybe @UTCTime "2022-10-08 11:30:08 UTC")
+    (Just 0xdf6f85b3)
+    (Just CM_STORE)
+    (Just EM_NONE)
+
+  checkFile
+    "60kilobytes"
+    (Just 1)
+    (Just 60_000)
+    (Just 60_000)
+    (Just . fromJust $ readMaybe @UTCTime "2022-10-08 11:30:30 UTC")
+    (Just 0x36b68602)
+    (Just CM_STORE)
+    (Just EM_NONE)
+
+  checkFile
+    "larger/"
+    (Just 2)
+    (Just 0)
+    (Just 0)
+    (Just . fromJust $ readMaybe @UTCTime "2022-10-08 11:31:26 UTC")
+    (Just 0)
+    (Just CM_STORE)
+    (Just EM_NONE)
+
+  checkFile
+    "larger/1megabyte"
+    (Just 3)
+    (Just 1_000_000)
+    (Just 1_000_000)
+    (Just . fromJust $ readMaybe @UTCTime "2022-10-08 11:30:56 UTC")
+    (Just 0xad8775ed)
+    (Just CM_STORE)
+    (Just EM_NONE)
 
 -- |
 -- * Reads at most one chunk from each item in @data.zip@, numerous times concurrently.
