@@ -147,9 +147,11 @@ data GetFileFlag
   --  GF_FL_UNCHANGED
   deriving (Eq, Ord)
 
--- /Internal/.
+-- | /Internal/.
 getFileFlags :: Map GetFileFlag Zip_flags_t
 getFileFlags =
+  -- For now, we don’t bother with the name-lookup flags documented at
+  -- https://libzip.org/documentation/zip_name_locate.html.
   M.fromList
     [ (GF_FL_COMPRESSED, zip_fl_compressed)
     -- (GF_FL_UNCHANGED, zip_fl_unchanged)
@@ -188,7 +190,7 @@ getFileByPathOrIndex z@(Zip zipfp) flags pathOrIdx = mask_ $ do
         (printf "zip_fclose() return code: %d" (fromIntegral @_ @Int ret))
   return $ File filep ref
 
--- /Internal/.
+-- | /Internal/.
 {-# INLINE unfoldFile #-}
 unfoldFile :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], Either String Int) ByteString
 unfoldFile =
@@ -224,12 +226,12 @@ unfoldFile =
         return (z, file, bufp, ref)
     )
 
--- /Internal/.
+-- | /Internal/.
 {-# INLINE chunkSize #-}
 chunkSize :: Zip_uint64_t
 chunkSize = 64000
 
--- /Internal/.
+-- | /Internal/.
 combineFlags :: (Ord flagType, Bits a, Num a) => Map flagType a -> [flagType] -> a
 combineFlags allFlags =
   foldl'
@@ -246,11 +248,13 @@ unfoldFileAtPath = U.lmap (\(z, fl, p) -> (z, fl, Left p)) unfoldFile
 unfoldFileAtIndex :: (MonadIO m) => Unfold m (Zip, [GetFileFlag], Int) ByteString
 unfoldFileAtIndex = U.lmap (\(z, fl, idx) -> (z, fl, Right idx)) unfoldFile
 
+-- | /Internal/.
 {-# INLINE touch #-}
 touch :: a -> IO ()
 touch x = IO $ \s -> case touch# x s of
   s' -> (# s', () #)
 
+-- | /Internal/.
 {-# INLINE keepAlive #-}
 keepAlive :: a -> IO b -> IO b
 keepAlive a f = IO $ \s0 -> keepAlive# a s0 (unIO f)
