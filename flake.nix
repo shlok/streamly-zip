@@ -66,11 +66,10 @@
         packages = {
           default = pkgs.${packageName};
           ${packageName} = pkgs.${packageName};
-          "${packageName}-ci" = pkgs.${packageName};
-          # No QuickCheck used.
-          #   pkgs.haskell.lib.overrideCabal
-          #     pkgs.${packageName}
-          #     (drv: { testFlags = ["--quickcheck-tests=500"]; });
+          "${packageName}-ci" =
+            pkgs.haskell.lib.overrideCabal
+              pkgs.${packageName}
+              (drv: { testFlags = ["--quickcheck-tests=500"]; });
         };
         
         devShells.default = pkgs.myDevShell;
