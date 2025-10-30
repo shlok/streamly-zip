@@ -14,8 +14,9 @@ import Data.List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.Time.Clock
+import Data.Time
 import Data.Time.Clock.POSIX
+import Data.Time.Zones
 import Foreign
 import Foreign.C.String
 import Foreign.C.Types
@@ -294,13 +295,24 @@ getFileCompressedSize (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
       else Nothing
 
 -- | Gets modification time from a @FileInfo@; @Nothing@ if not available.
-getFileModificationTime :: FileInfo -> IO (Maybe UTCTime)
+getFileModificationTime :: FileInfo -> IO (Maybe LocalTime)
 getFileModificationTime (FileInfo zsfp) = withForeignPtr zsfp $ \zsp -> do
   zs <- peek zsp
-  return $
-    if s_valid zs .&. zip_stat_mtime /= 0
-      then let CTime secs = s_mtime zs in Just . posixSecondsToUTCTime . fromIntegral $ secs
-      else Nothing
+  if s_valid zs .&. zip_stat_mtime /= 0
+    then do
+      -- + libzip’s mtime depends on the local time zone; see
+      --   https://github.com/nih-at/libzip/issues/89.
+      -- + More specifically, libzip seems to (a) assume that the local time (day, hour, minute,
+      --   second) in the zip file is stored in the local time zone, and (b) convert that to UTC.
+      let CTime mtime = s_mtime zs
+          mtimeUtc = posixSecondsToUTCTime . fromIntegral $ mtime
+
+      -- Deduce the original zip local time.
+      tz <- loadLocalTZ
+      let lt = utcToLocalTimeTZ tz mtimeUtc
+
+      return . Just $ lt
+    else return Nothing
 
 -- | Gets CRC checksum from a @FileInfo@; @Nothing@ if not available.
 getFileCRC :: FileInfo -> IO (Maybe Word32)

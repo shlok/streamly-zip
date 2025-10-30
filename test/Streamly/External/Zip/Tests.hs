@@ -15,7 +15,7 @@ import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Char8 as BC8
 import Data.Function
 import Data.Maybe
-import Data.Time.Clock
+import Data.Time
 import Data.Word
 import GHC.Conc
 import qualified Streamly.Data.Fold as F
@@ -74,30 +74,29 @@ testDataZipFileInfo :: TestTree
 testDataZipFileInfo = testCase "testDataZipFileInfo" $ do
   z <- openZip "test/data/data.zip" []
 
-  -- Flip because in assertEqual, the expected value is the second one.
-  let flipAssert :: (Eq a, Show a) => String -> String -> a -> a -> Assertion
-      flipAssert fn field = flip $ assertEqual (printf "%s;%s" fn field)
+  let assertEq :: (Eq a, Show a) => String -> String -> a -> a -> Assertion
+      assertEq fn field = assertEqual (printf "%s;%s" fn field)
 
   let checkFile ::
         String ->
         Maybe Int ->
         Maybe Int ->
         Maybe Int ->
-        Maybe UTCTime ->
+        Maybe LocalTime ->
         Maybe Word32 ->
         Maybe CompressionMethod ->
         Maybe EncryptionMethod ->
         IO ()
       checkFile fn fidx fsz fcsz fmt fcrc fcm fem = do
         finfo <- getFileInfoAtPath z fn
-        getFileName finfo >>= flipAssert fn "fn" (Just fn)
-        getFileIndex finfo >>= flipAssert fn "fidx" fidx
-        getFileSize finfo >>= flipAssert fn "fsz" fsz
-        getFileCompressedSize finfo >>= flipAssert fn "fcsz" fcsz
-        getFileModificationTime finfo >>= flipAssert fn "fmt" fmt
-        getFileCRC finfo >>= flipAssert fn "fcrc" fcrc
-        getFileCompressionMethod finfo >>= flipAssert fn "fcm" fcm
-        getFileEncryptionMethod finfo >>= flipAssert fn "fem" fem
+        getFileName finfo >>= assertEq fn "fn" (Just fn)
+        getFileIndex finfo >>= assertEq fn "fidx" fidx
+        getFileSize finfo >>= assertEq fn "fsz" fsz
+        getFileCompressedSize finfo >>= assertEq fn "fcsz" fcsz
+        getFileModificationTime finfo >>= assertEq fn "fmt" fmt
+        getFileCRC finfo >>= assertEq fn "fcrc" fcrc
+        getFileCompressionMethod finfo >>= assertEq fn "fcm" fcm
+        getFileEncryptionMethod finfo >>= assertEq fn "fem" fem
 
   -- Note: To obtain CRC-32 for a file ourselves, we can use the crc32 command (available via
   -- libarchive-zip-perl on Debian).
@@ -107,7 +106,7 @@ testDataZipFileInfo = testCase "testDataZipFileInfo" $ do
     (Just 0)
     (Just 1)
     (Just 1)
-    (Just . fromJust $ readMaybe @UTCTime "2022-10-08 11:30:08 UTC")
+    (Just . fromJust $ readMaybe @LocalTime "2022-10-08 13:30:08")
     (Just 0xdf6f85b3)
     (Just CM_STORE)
     (Just EM_NONE)
@@ -117,7 +116,7 @@ testDataZipFileInfo = testCase "testDataZipFileInfo" $ do
     (Just 1)
     (Just 60_000)
     (Just 60_000)
-    (Just . fromJust $ readMaybe @UTCTime "2022-10-08 11:30:30 UTC")
+    (Just . fromJust $ readMaybe @LocalTime "2022-10-08 13:30:30")
     (Just 0x36b68602)
     (Just CM_STORE)
     (Just EM_NONE)
@@ -127,7 +126,7 @@ testDataZipFileInfo = testCase "testDataZipFileInfo" $ do
     (Just 2)
     (Just 0)
     (Just 0)
-    (Just . fromJust $ readMaybe @UTCTime "2022-10-08 11:31:26 UTC")
+    (Just . fromJust $ readMaybe @LocalTime "2022-10-08 13:31:26")
     (Just 0)
     (Just CM_STORE)
     (Just EM_NONE)
@@ -137,7 +136,7 @@ testDataZipFileInfo = testCase "testDataZipFileInfo" $ do
     (Just 3)
     (Just 1_000_000)
     (Just 1_000_000)
-    (Just . fromJust $ readMaybe @UTCTime "2022-10-08 11:30:56 UTC")
+    (Just . fromJust $ readMaybe @LocalTime "2022-10-08 13:30:56")
     (Just 0xad8775ed)
     (Just CM_STORE)
     (Just EM_NONE)
