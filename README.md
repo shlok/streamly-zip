@@ -1,7 +1,8 @@
 # streamly-zip
 
 [![Hackage](https://img.shields.io/hackage/v/streamly-zip.svg?style=flat)](https://hackage.haskell.org/package/streamly-zip)
-![CI](https://github.com/shlok/streamly-zip/workflows/CI/badge.svg?branch=master)
+[![CI](https://github.com/shlok/streamly-zip/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/shlok/streamly-zip/actions/workflows/ci.yaml)
+[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fshlok%2Fstreamly-zip%3Fbranch%3Dmaster)](https://garnix.io/repo/shlok/streamly-zip)
 
 Stream data from zip archives using the Haskell [streamly](https://hackage.haskell.org/package/streamly) library.
 
