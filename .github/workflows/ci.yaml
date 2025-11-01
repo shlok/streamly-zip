@@ -14,7 +14,7 @@ on:
       - opened
       - synchronize
 
-  # Allows you to run this workflow manually from the Actions tab
+  # Allows us to run the workflow manually from the Actions tab.
   workflow_dispatch:
 
   schedule:
@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5.0.0
       - uses: haskell/actions/setup@v2.4.7
-        id: setup-haskell-cabal
+        id: setup-haskell-stack
         with:
           enable-stack: true
           stack-version: ${{ matrix.stack }}
@@ -76,7 +76,6 @@ jobs:
       - run: brew install libzip
         if: contains(matrix.os, 'macos')
       - uses: actions/cache@v4.3.0
-        if: contains(matrix.os, 'ubuntu') # Avoid "cannot execute binary file" error on macOS.
         with:
           path: |
             ~/.stack
